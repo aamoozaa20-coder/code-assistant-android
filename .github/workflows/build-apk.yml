@@ -8,22 +8,33 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: subosito/flutter-action@v2
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.24.5'
           channel: 'stable'
+          cache: true
 
-      - name: Install dependencies
+      - name: Generate Android platform files
+        run: |
+          flutter create . --project-name code_assistant --org com.codeassistant.app --platforms android
+          # Restore our custom files that might get overwritten
+          git checkout -- lib/ pubspec.yaml analysis_options.yaml || true
+
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build Release APK
         run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
+          name: code-assistant-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30

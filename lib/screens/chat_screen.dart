@@ -40,7 +40,6 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _saveCodeToFile(String content) async {
     try {
-      // استخراج کد از markdown
       final codeRegex = RegExp(r'```(?:\w+)?\n([\s\S]*?)```');
       final match = codeRegex.firstMatch(content);
       final code = match != null ? match.group(1)!.trim() : content;
@@ -74,6 +73,17 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _copyText(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('کپی شد'),
+        duration: Duration(seconds: 1),
+        backgroundColor: Color(0xFF22C55E),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer2<ChatService, SettingsService>(
@@ -82,42 +92,47 @@ class _ChatScreenState extends State<ChatScreen> {
 
         return Column(
           children: [
-            // Messages
             Expanded(
               child: chat.messages.isEmpty
                   ? Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.auto_awesome, size: 64, color: Colors.white.withOpacity(0.2)),
+                          Icon(Icons.auto_awesome,
+                              size: 64, color: Colors.white.withOpacity(0.2)),
                           const SizedBox(height: 16),
                           Text(
                             'چی کدی می‌خوای برات بنویسم؟',
-                            style: TextStyle(fontSize: 18, color: Colors.white.withOpacity(0.5)),
+                            style: TextStyle(
+                                fontSize: 18,
+                                color: Colors.white.withOpacity(0.5)),
                           ),
                           const SizedBox(height: 8),
                           Text(
                             'مثال: یک تابع فیبوناچی بنویس',
-                            style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.3)),
+                            style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.white.withOpacity(0.3)),
                           ),
                         ],
                       ),
                     )
                   : ListView.builder(
                       controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       itemCount: chat.messages.length,
                       itemBuilder: (context, index) {
                         final message = chat.messages[index];
                         return _MessageBubble(
                           message: message,
                           onSave: () => _saveCodeToFile(message.content),
+                          onCopy: () => _copyText(message.content),
                         );
                       },
                     ),
             ),
 
-            // Loading indicator
             if (chat.isLoading)
               const Padding(
                 padding: EdgeInsets.all(8.0),
@@ -130,12 +145,12 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                     SizedBox(width: 12),
-                    Text('در حال نوشتن...', style: TextStyle(color: Colors.white54)),
+                    Text('در حال نوشتن...',
+                        style: TextStyle(color: Colors.white54)),
                   ],
                 ),
               ),
 
-            // Input area
             Container(
               padding: const EdgeInsets.all(12),
               decoration: const BoxDecoration(
@@ -171,9 +186,11 @@ class _ChatScreenState extends State<ChatScreen> {
                           : () {
                               final text = _controller.text;
                               _controller.clear();
-                              chat.sendMessage(text, settings.selectedProvider);
+                              chat.sendMessage(
+                                  text, settings.selectedProvider);
                             },
-                      icon: const Icon(Icons.send_rounded, color: Colors.white),
+                      icon:
+                          const Icon(Icons.send_rounded, color: Colors.white),
                     ),
                   ),
                 ],
@@ -189,8 +206,13 @@ class _ChatScreenState extends State<ChatScreen> {
 class _MessageBubble extends StatelessWidget {
   final Message message;
   final VoidCallback onSave;
+  final VoidCallback onCopy;
 
-  const _MessageBubble({required this.message, required this.onSave});
+  const _MessageBubble({
+    required this.message,
+    required this.onSave,
+    required this.onCopy,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -224,36 +246,60 @@ class _MessageBubble extends StatelessWidget {
                   style: const TextStyle(fontSize: 11, color: Colors.white38),
                 ),
               ),
-            if (isUser)
-              Text(message.content, style: const TextStyle(color: Colors.white, fontSize: 15))
-            else
-              MarkdownBody(
-                data: message.content,
-                styleSheet: MarkdownStyleSheet(
-                  p: const TextStyle(color: Colors.white, fontSize: 15),
-                  code: const TextStyle(
-                    backgroundColor: Color(0xFF0F172A),
-                    color: Color(0xFF22D3EE),
-                    fontSize: 13,
-                  ),
-                  codeblockDecoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
+            // متن قابل انتخاب و کپی
+            SelectionArea(
+              child: isUser
+                  ? Text(
+                      message.content,
+                      style:
+                          const TextStyle(color: Colors.white, fontSize: 15),
+                    )
+                  : MarkdownBody(
+                      data: message.content,
+                      selectable: true,
+                      styleSheet: MarkdownStyleSheet(
+                        p: const TextStyle(color: Colors.white, fontSize: 15),
+                        code: const TextStyle(
+                          backgroundColor: Color(0xFF0F172A),
+                          color: Color(0xFF22D3EE),
+                          fontSize: 13,
+                        ),
+                        codeblockDecoration: BoxDecoration(
+                          color: const Color(0xFF0F172A),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+            ),
             if (!isUser)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: onSave,
-                  icon: const Icon(Icons.save_alt_rounded, size: 16, color: Colors.white54),
-                  label: const Text('ذخیره فایل', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                  style: TextButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextButton.icon(
+                    onPressed: onCopy,
+                    icon: const Icon(Icons.copy_rounded,
+                        size: 16, color: Colors.white54),
+                    label: const Text('کپی',
+                        style:
+                            TextStyle(color: Colors.white54, fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                    ),
                   ),
-                ),
+                  TextButton.icon(
+                    onPressed: onSave,
+                    icon: const Icon(Icons.save_alt_rounded,
+                        size: 16, color: Colors.white54),
+                    label: const Text('ذخیره فایل',
+                        style:
+                            TextStyle(color: Colors.white54, fontSize: 12)),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                    ),
+                  ),
+                ],
               ),
           ],
         ),

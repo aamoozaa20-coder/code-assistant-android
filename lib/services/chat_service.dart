@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../models/message.dart';
 import '../models/ai_provider.dart';
+import 'doh_http.dart';
 
 class ChatService extends ChangeNotifier {
   final List<Message> messages = [];
@@ -109,7 +109,7 @@ class ChatService extends ChangeNotifier {
       },
     };
 
-    final response = await http.post(
+    final response = await DohHttp.post(
       url,
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
@@ -148,7 +148,7 @@ class ChatService extends ChangeNotifier {
       'max_tokens': 8192,
     };
 
-    final response = await http.post(
+    final response = await DohHttp.post(
       url,
       headers: {
         'Content-Type': 'application/json',
@@ -170,7 +170,6 @@ class ChatService extends ChangeNotifier {
     }
   }
 
-  /// مدل‌های پیش‌فرض برای سرویس‌های معروف
   static List<String> knownModelsFor(String baseUrl) {
     final u = baseUrl.toLowerCase();
     if (u.contains('apmix.ai')) {
@@ -201,7 +200,6 @@ class ChatService extends ChangeNotifier {
     return [];
   }
 
-  /// دریافت لیست مدل‌ها از API
   static Future<List<String>> fetchModels(String baseUrl, String apiKey) async {
     if (baseUrl.trim().isEmpty) {
       throw Exception('Base URL خالی است');
@@ -215,14 +213,9 @@ class ChatService extends ChangeNotifier {
       cleaned = cleaned.substring(0, cleaned.length - 1);
     }
 
-    // امتحان چند مسیر مختلف
-    final candidates = [
-      '$cleaned/models',
-      '$cleaned/v1/models',
-    ];
-    // اگر خودش /v1 دارد، دوباره نکن
-    if (cleaned.endsWith('/v1')) {
-      candidates.remove('$cleaned/v1/models');
+    final candidates = ['$cleaned/models'];
+    if (!cleaned.endsWith('/v1')) {
+      candidates.add('$cleaned/v1/models');
     }
 
     Exception? lastError;
@@ -230,13 +223,13 @@ class ChatService extends ChangeNotifier {
     for (final endpoint in candidates) {
       try {
         final url = Uri.parse(endpoint);
-        final response = await http.get(
+        final response = await DohHttp.get(
           url,
           headers: {
             'Authorization': 'Bearer $apiKey',
             'Content-Type': 'application/json',
           },
-        ).timeout(const Duration(seconds: 20));
+        );
 
         if (response.statusCode == 401 || response.statusCode == 403) {
           throw Exception(
@@ -262,7 +255,6 @@ class ChatService extends ChangeNotifier {
         }
 
         if (ids.isEmpty) {
-          // اگر API چیزی برنگردوند، از لیست معروف استفاده کن
           final known = knownModelsFor(baseUrl);
           if (known.isNotEmpty) return known;
           throw Exception('لیست مدل خالی بود');
@@ -271,23 +263,17 @@ class ChatService extends ChangeNotifier {
         ids.sort();
         return ids;
       } catch (e) {
-        if (e is Exception &&
-            (e.toString().contains('کلید API') ||
-                e.toString().contains('اشتباه'))) {
+        if (e is Exception && e.toString().contains('کلید API')) {
           rethrow;
         }
         lastError = e is Exception ? e : Exception(e.toString());
       }
     }
 
-    // فالبک: مدل‌های معروف
     final known = knownModelsFor(baseUrl);
-    if (known.isNotEmpty) {
-      return known;
-    }
+    if (known.isNotEmpty) return known;
 
     throw lastError ??
-        Exception(
-            'نتوانستم لیست مدل‌ها را بگیرم. اینترنت یا VPN را بررسی کن');
+        Exception('نتوانستم لیست مدل‌ها را بگیرم');
   }
 }

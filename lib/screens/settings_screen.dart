@@ -44,10 +44,10 @@ class SettingsScreen extends StatelessWidget {
                       provider.apiKey.isEmpty
                           ? 'کلید API تنظیم نشده'
                           : (provider.model.isEmpty
-                              ? 'مدل انتخاب نشده'
+                              ? 'مدل انتخاب نشده — ویرایش کن و دریافت مدل‌ها'
                               : 'مدل: ${provider.model}'),
                       style: TextStyle(
-                        color: provider.apiKey.isEmpty
+                        color: provider.apiKey.isEmpty || provider.model.isEmpty
                             ? Colors.orange
                             : Colors.greenAccent,
                         fontSize: 12,
@@ -89,7 +89,7 @@ class SettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 30),
               const Text(
-                'توضیحات',
+                'راهنما',
                 style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -97,9 +97,11 @@ class SettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               const Text(
-                '• برای Gemini: از Google AI Studio یک API Key رایگان بگیرید\n'
-                '• برای Groq: از سایت groq.com کلید رایگان بگیرید\n'
-                '• برای API سفارشی: Base URL + API Key را وارد کنید، سپس دکمه «دریافت مدل‌ها» را بزنید',
+                '1. Base URL و API Key را وارد کن\n'
+                '2. روی «دریافت مدل‌ها» بزن\n'
+                '3. از لیست، یک مدل انتخاب کن\n'
+                '4. ذخیره کن\n\n'
+                'برای apmix مدل رایگان: claude-sonnet-4-6-free',
                 style: TextStyle(color: Colors.white54, height: 1.6),
               ),
             ],
@@ -140,6 +142,7 @@ class _ProviderDialogState extends State<_ProviderDialog> {
   List<String> fetchedModels = [];
   bool isFetching = false;
   String? fetchError;
+  String? fetchSuccess;
 
   @override
   void initState() {
@@ -150,6 +153,16 @@ class _ProviderDialogState extends State<_ProviderDialog> {
         text: p?.baseUrl ?? 'https://api.apmix.ai/v1');
     keyCtrl = TextEditingController(text: p?.apiKey ?? '');
     modelCtrl = TextEditingController(text: p?.model ?? '');
+
+    // اگر apmix باشد، مدل‌های معروف را نشان بده
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final known = ChatService.knownModelsFor(urlCtrl.text);
+      if (known.isNotEmpty && fetchedModels.isEmpty) {
+        setState(() {
+          fetchedModels = known;
+        });
+      }
+    });
   }
 
   @override
@@ -165,7 +178,7 @@ class _ProviderDialogState extends State<_ProviderDialog> {
     setState(() {
       isFetching = true;
       fetchError = null;
-      fetchedModels = [];
+      fetchSuccess = null;
     });
 
     try {
@@ -176,14 +189,26 @@ class _ProviderDialogState extends State<_ProviderDialog> {
       setState(() {
         fetchedModels = models;
         isFetching = false;
-        if (models.isEmpty) {
-          fetchError = 'هیچ مدلی پیدا نشد';
+        fetchSuccess = '${models.length} مدل پیدا شد — یکی را انتخاب کن';
+        if (models.isNotEmpty && modelCtrl.text.trim().isEmpty) {
+          modelCtrl.text = models.first;
         }
       });
     } catch (e) {
+      // حتی اگر خطا داد، باز هم مدل‌های معروف را نشان بده
+      final known = ChatService.knownModelsFor(urlCtrl.text);
       setState(() {
         isFetching = false;
-        fetchError = e.toString();
+        if (known.isNotEmpty) {
+          fetchedModels = known;
+          fetchError =
+              'از سرور دریافت نشد، اما مدل‌های پیش‌فرض نشان داده شد.\n$e';
+          if (modelCtrl.text.trim().isEmpty) {
+            modelCtrl.text = known.first;
+          }
+        } else {
+          fetchError = e.toString();
+        }
       });
     }
   }
@@ -197,6 +222,15 @@ class _ProviderDialogState extends State<_ProviderDialog> {
     if (name.isEmpty || url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('نام و Base URL الزامی هست')),
+      );
+      return;
+    }
+
+    if (model.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'یک مدل انتخاب کن یا روی «دریافت مدل‌ها» بزن')),
       );
       return;
     }
@@ -249,6 +283,12 @@ class _ProviderDialogState extends State<_ProviderDialog> {
                 hintText: 'https://api.apmix.ai/v1',
               ),
               style: const TextStyle(color: Colors.white),
+              onChanged: (_) {
+                final known = ChatService.knownModelsFor(urlCtrl.text);
+                if (known.isNotEmpty) {
+                  setState(() => fetchedModels = known);
+                }
+              },
             ),
             const SizedBox(height: 10),
             TextField(
@@ -267,28 +307,32 @@ class _ProviderDialogState extends State<_ProviderDialog> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.cloud_download_rounded),
-              label: Text(isFetching ? 'در حال دریافت...' : 'دریافت مدل‌ها'),
+              label:
+                  Text(isFetching ? 'در حال دریافت...' : 'دریافت مدل‌ها'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF22D3EE),
                 foregroundColor: Colors.black,
               ),
             ),
+            if (fetchSuccess != null) ...[
+              const SizedBox(height: 8),
+              Text(fetchSuccess!,
+                  style: const TextStyle(color: Colors.greenAccent, fontSize: 12)),
+            ],
             if (fetchError != null) ...[
               const SizedBox(height: 8),
-              Text(
-                fetchError!,
-                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-              ),
+              Text(fetchError!,
+                  style: const TextStyle(color: Colors.orangeAccent, fontSize: 12)),
             ],
             if (fetchedModels.isNotEmpty) ...[
               const SizedBox(height: 12),
               const Text(
-                'مدل‌های دریافت‌شده (یکی را انتخاب کنید):',
+                'از لیست زیر یک مدل انتخاب کن:',
                 style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 8),
               Container(
-                constraints: const BoxConstraints(maxHeight: 180),
+                constraints: const BoxConstraints(maxHeight: 200),
                 decoration: BoxDecoration(
                   color: const Color(0xFF0F172A),
                   borderRadius: BorderRadius.circular(10),
@@ -305,9 +349,12 @@ class _ProviderDialogState extends State<_ProviderDialog> {
                           style: TextStyle(
                             color: selected ? Colors.cyanAccent : Colors.white,
                             fontSize: 13,
+                            fontWeight:
+                                selected ? FontWeight.bold : FontWeight.normal,
                           )),
                       trailing: selected
-                          ? const Icon(Icons.check, color: Colors.cyanAccent, size: 18)
+                          ? const Icon(Icons.check_circle,
+                              color: Colors.cyanAccent, size: 18)
                           : null,
                       onTap: () {
                         setState(() {
@@ -323,10 +370,11 @@ class _ProviderDialogState extends State<_ProviderDialog> {
             TextField(
               controller: modelCtrl,
               decoration: const InputDecoration(
-                labelText: 'نام مدل',
-                hintText: 'یا از لیست بالا انتخاب کنید یا دستی بنویسید',
+                labelText: 'مدل انتخاب‌شده',
+                hintText: 'از لیست بالا انتخاب کن',
               ),
               style: const TextStyle(color: Colors.white),
+              readOnly: false,
             ),
           ],
         ),

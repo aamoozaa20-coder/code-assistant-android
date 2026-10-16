@@ -59,7 +59,8 @@ class ChatService extends ChangeNotifier {
       throw Exception('لطفاً ابتدا API Key را در تنظیمات وارد کنید');
     }
     if (provider.model.trim().isEmpty) {
-      throw Exception('نام مدل خالی است. لطفاً در تنظیمات یک مدل انتخاب کنید');
+      throw Exception(
+          'نام مدل خالی است. در تنظیمات روی «دریافت مدل‌ها» بزن یا دستی بنویس');
     }
 
     final history = messages
@@ -78,7 +79,7 @@ class ChatService extends ChangeNotifier {
 
   String _cleanBaseUrl(String url) {
     var cleaned = url.trim();
-    if (cleaned.endsWith('/')) {
+    while (cleaned.endsWith('/')) {
       cleaned = cleaned.substring(0, cleaned.length - 1);
     }
     return cleaned;
@@ -169,45 +170,124 @@ class ChatService extends ChangeNotifier {
     }
   }
 
-  /// دریافت لیست مدل‌ها از API (سازگار با OpenAI)
+  /// مدل‌های پیش‌فرض برای سرویس‌های معروف
+  static List<String> knownModelsFor(String baseUrl) {
+    final u = baseUrl.toLowerCase();
+    if (u.contains('apmix.ai')) {
+      return [
+        'claude-sonnet-4-6-free',
+        'claude-sonnet-4-6',
+        'claude-sonnet-5',
+        'gpt-5.6-luna',
+        'deepseek-v4.1-flash',
+        'glm-5.3-flash',
+      ];
+    }
+    if (u.contains('groq.com')) {
+      return [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+        'mixtral-8x7b-32768',
+        'gemma2-9b-it',
+      ];
+    }
+    if (u.contains('openrouter.ai')) {
+      return [
+        'google/gemini-2.0-flash-exp:free',
+        'meta-llama/llama-3.2-3b-instruct:free',
+        'qwen/qwen-2.5-7b-instruct:free',
+      ];
+    }
+    return [];
+  }
+
+  /// دریافت لیست مدل‌ها از API
   static Future<List<String>> fetchModels(String baseUrl, String apiKey) async {
-    if (baseUrl.trim().isEmpty || apiKey.trim().isEmpty) {
-      throw Exception('Base URL و API Key لازم است');
+    if (baseUrl.trim().isEmpty) {
+      throw Exception('Base URL خالی است');
+    }
+    if (apiKey.trim().isEmpty) {
+      throw Exception('API Key خالی است');
     }
 
     var cleaned = baseUrl.trim();
-    if (cleaned.endsWith('/')) {
+    while (cleaned.endsWith('/')) {
       cleaned = cleaned.substring(0, cleaned.length - 1);
     }
 
-    final url = Uri.parse('$cleaned/models');
-
-    final response = await http.get(
-      url,
-      headers: {
-        'Authorization': 'Bearer $apiKey',
-        'Content-Type': 'application/json',
-      },
-    ).timeout(const Duration(seconds: 15));
-
-    if (response.statusCode != 200) {
-      throw Exception(
-          'خطا در دریافت مدل‌ها (${response.statusCode}): ${response.body}');
+    // امتحان چند مسیر مختلف
+    final candidates = [
+      '$cleaned/models',
+      '$cleaned/v1/models',
+    ];
+    // اگر خودش /v1 دارد، دوباره نکن
+    if (cleaned.endsWith('/v1')) {
+      candidates.remove('$cleaned/v1/models');
     }
 
-    final data = jsonDecode(response.body);
-    final List models = data['data'] ?? data['models'] ?? [];
+    Exception? lastError;
 
-    final List<String> ids = [];
-    for (final m in models) {
-      if (m is Map && m['id'] != null) {
-        ids.add(m['id'].toString());
-      } else if (m is String) {
-        ids.add(m);
+    for (final endpoint in candidates) {
+      try {
+        final url = Uri.parse(endpoint);
+        final response = await http.get(
+          url,
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'Content-Type': 'application/json',
+          },
+        ).timeout(const Duration(seconds: 20));
+
+        if (response.statusCode == 401 || response.statusCode == 403) {
+          throw Exception(
+              'کلید API اشتباه یا مجاز نیست (${response.statusCode})');
+        }
+
+        if (response.statusCode != 200) {
+          lastError = Exception(
+              'خطا ${response.statusCode}: ${response.body}');
+          continue;
+        }
+
+        final data = jsonDecode(response.body);
+        final List models = data['data'] ?? data['models'] ?? [];
+
+        final List<String> ids = [];
+        for (final m in models) {
+          if (m is Map && m['id'] != null) {
+            ids.add(m['id'].toString());
+          } else if (m is String) {
+            ids.add(m);
+          }
+        }
+
+        if (ids.isEmpty) {
+          // اگر API چیزی برنگردوند، از لیست معروف استفاده کن
+          final known = knownModelsFor(baseUrl);
+          if (known.isNotEmpty) return known;
+          throw Exception('لیست مدل خالی بود');
+        }
+
+        ids.sort();
+        return ids;
+      } catch (e) {
+        if (e is Exception &&
+            (e.toString().contains('کلید API') ||
+                e.toString().contains('اشتباه'))) {
+          rethrow;
+        }
+        lastError = e is Exception ? e : Exception(e.toString());
       }
     }
 
-    ids.sort();
-    return ids;
+    // فالبک: مدل‌های معروف
+    final known = knownModelsFor(baseUrl);
+    if (known.isNotEmpty) {
+      return known;
+    }
+
+    throw lastError ??
+        Exception(
+            'نتوانستم لیست مدل‌ها را بگیرم. اینترنت یا VPN را بررسی کن');
   }
 }

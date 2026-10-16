@@ -23,8 +23,30 @@ jobs:
       - name: Generate Android platform files
         run: |
           flutter create . --project-name code_assistant --org com.codeassistant.app --platforms android
-          # Restore our custom files that might get overwritten
           git checkout -- lib/ pubspec.yaml analysis_options.yaml || true
+
+      - name: Fix Internet permission & network security
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+
+          # Ensure INTERNET permission exists
+          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            sed -i 's|<manifest |<manifest |' "$MANIFEST"
+            sed -i '/<manifest /a\    <uses-permission android:name="android.permission.INTERNET"/>' "$MANIFEST"
+          fi
+
+          # Also add ACCESS_NETWORK_STATE
+          if ! grep -q 'android.permission.ACCESS_NETWORK_STATE' "$MANIFEST"; then
+            sed -i '/android.permission.INTERNET/a\    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>' "$MANIFEST"
+          fi
+
+          # Make sure application tag allows cleartext if needed and has usesCleartextTraffic
+          if ! grep -q 'android:usesCleartextTraffic' "$MANIFEST"; then
+            sed -i 's|<application |<application android:usesCleartextTraffic="true" |' "$MANIFEST"
+          fi
+
+          echo "=== AndroidManifest.xml ==="
+          cat "$MANIFEST"
 
       - name: Get dependencies
         run: flutter pub get
